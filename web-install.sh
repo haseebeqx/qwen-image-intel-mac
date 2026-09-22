@@ -30,7 +30,21 @@ if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
 fi
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+replacement=""
+backup=""
+old_moved=0
+cleanup() {
+    status=$?
+    set +e
+    if (( old_moved )); then
+        rm -rf "$INSTALL_DIR"
+        mv "$backup" "$INSTALL_DIR"
+    fi
+    [[ -z "$replacement" ]] || rm -rf "$replacement"
+    rm -rf "$tmp"
+    return "$status"
+}
+trap cleanup EXIT
 archive="$tmp/$ASSET_NAME"
 checksum="$tmp/$ASSET_NAME.sha256"
 
@@ -52,6 +66,27 @@ tar -xzf "$archive" -C "$stage"
     exit 1
 }
 
-mkdir -p "$INSTALL_DIR"
-cp -R "$stage"/. "$INSTALL_DIR"/
+# Build the replacement beside the destination so the final moves stay on the
+# same filesystem. Replacing the directory, rather than copying over it, also
+# removes files that no longer belong to the release.
+install_parent="$(dirname "$INSTALL_DIR")"
+mkdir -p "$install_parent"
+replacement="$(mktemp -d "$install_parent/.qwen-image-install.XXXXXX")"
+cp -R "$stage"/. "$replacement"/
+
+if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
+    backup="$(mktemp -d "$install_parent/.qwen-image-backup.XXXXXX")"
+    rmdir "$backup"
+    mv "$INSTALL_DIR" "$backup"
+    old_moved=1
+fi
+mv "$replacement" "$INSTALL_DIR"
+replacement=""
+
+if (( old_moved )); then
+    rm -rf "$backup"
+    backup=""
+    old_moved=0
+fi
+
 exec "$INSTALL_DIR/install.sh" --skip-build "$@"

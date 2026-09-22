@@ -35,14 +35,15 @@ grep -qx -- '--skip-build' "$RESULT"
 [[ -x "$DEST/install.sh" ]]
 [[ -x "$DEST/build/bin/sd-cli" ]]
 
-# A repeated invocation updates the release in place and preserves unrelated data.
-touch "$DEST/preserved-model"
+# A repeated invocation cleanly replaces the release, removing files that are
+# absent from the archive instead of leaving stale release contents behind.
+touch "$DEST/obsolete-release-file"
 RESULT="$RESULT" PATH="$TMP/bin:$PATH" QWEN_INSTALL_DIR="$DEST" \
 QWEN_RELEASE_URL="file://$ASSET" QWEN_RELEASE_CHECKSUM_URL="file://$ASSET.sha256" \
     "$ROOT/web-install.sh"
 
 grep -qx -- '--skip-build' "$RESULT"
 [[ "$(wc -l <"$RESULT" | tr -d ' ')" == 1 ]]
-[[ -f "$DEST/preserved-model" ]]
+[[ ! -e "$DEST/obsolete-release-file" ]]
 
 echo "web installer tests passed"
