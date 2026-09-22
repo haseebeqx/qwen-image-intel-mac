@@ -2,12 +2,25 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+interrupt_wrapper=""
+interrupt_pids=""
+cleanup() {
+    [[ -z "$interrupt_wrapper" ]] || kill -KILL "$interrupt_wrapper" 2>/dev/null || true
+    for pid in $interrupt_pids; do kill -KILL "$pid" 2>/dev/null || true; done
+    rm -rf "$TMP"
+}
+trap cleanup EXIT
 mkdir -p "$TMP/models"
 for f in qwen_image_2.1-Q2_K.gguf Qwen3VL-8B-Instruct-Q4_K_M.gguf qwen_image_2.1_vae_bf16.safetensors; do printf x >"$TMP/models/$f"; done
 cat >"$TMP/sd-cli" <<'EOF'
 #!/bin/sh
 echo "noisy engine details"
+if [ "${QWEN_TEST_HANG:-0}" = 1 ]; then
+    trap '' INT TERM
+    sleep 300 &
+    printf '%s %s\n' "$$" "$!" >"$QWEN_TEST_PID_FILE"
+    wait
+fi
 if [ "${QWEN_TEST_PROGRESS:-0}" = 1 ]; then
     printf '[INFO   ] request.cpp - sampling using Euler method\n'
     printf '\r  |=========================                         | 1/2 - 1.00s/it\033[K'
@@ -61,6 +74,34 @@ verbose_output="$("${run[@]}" 'verbose output' --verbose --output "$TMP/verbose.
 grep -q -- 'Engine command:' <<<"$verbose_output"
 grep -q -- 'noisy engine details' <<<"$verbose_output"
 grep -q -- '--verbose' <<<"$verbose_output"
+
+# SIGINT and SIGTERM share the same descendant-tree shutdown path. Exercise it
+# with an engine and worker that ignore polite signals, ensuring neither survives.
+QWEN_TEST_HANG=1 QWEN_TEST_PID_FILE="$TMP/engine-pids" \
+    "${run[@]}" 'interrupt test' --output "$TMP/interrupted.png" >"$TMP/interrupt.log" 2>&1 &
+interrupt_wrapper=$!
+for _ in {1..100}; do
+    [[ -s "$TMP/engine-pids" ]] && break
+    sleep 0.02
+done
+[[ -s "$TMP/engine-pids" ]] || { echo "interrupt test engine did not start" >&2; exit 1; }
+interrupt_pids="$(<"$TMP/engine-pids")"
+kill -TERM "$interrupt_wrapper"
+if wait "$interrupt_wrapper"; then
+    interrupt_status=0
+else
+    interrupt_status=$?
+fi
+interrupt_wrapper=""
+[[ "$interrupt_status" == 143 ]] || { echo "expected interrupted wrapper to exit 143, got $interrupt_status" >&2; exit 1; }
+for _ in {1..50}; do
+    survivors=""
+    for pid in $interrupt_pids; do kill -0 "$pid" 2>/dev/null && survivors+=" $pid"; done
+    [[ -z "$survivors" ]] && break
+    sleep 0.02
+done
+[[ -z "$survivors" ]] || { echo "generation processes survived shutdown:$survivors" >&2; exit 1; }
+interrupt_pids=""
 
 # Cover the discrete VRAM capacities available across Intel Mac configurations.
 for profile in '4 3.0' '8 7.0' '16 15.0' '32 31.0'; do
