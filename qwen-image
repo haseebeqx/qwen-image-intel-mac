@@ -197,10 +197,12 @@ if (( DRY_RUN || VERBOSE )); then
 fi
 (( DRY_RUN )) && exit 0
 
-# Current upstream supports this switch. Serial graph encoding avoids known command-buffer
-# races on Intel Macs with discrete AMD Metal devices.
+# Serial graph encoding avoids known command-buffer races on discrete AMD Metal.
+# The patched engine divides each graph among nine command buffers (one main plus
+# eight workers), keeping slow 5300M jobs below the macOS GPU watchdog limit.
 export GGML_METAL_CONCURRENCY_DISABLE="${GGML_METAL_CONCURRENCY_DISABLE:-1}"
 export GGML_METAL_SHARED_BUFFERS_DISABLE="${GGML_METAL_SHARED_BUFFERS_DISABLE:-1}"
+export GGML_METAL_N_CB="${GGML_METAL_N_CB:-8}"
 
 # The compact display is a pipeline, so the engine is not necessarily the one
 # child represented by $!. Stop the entire descendant tree when this wrapper is

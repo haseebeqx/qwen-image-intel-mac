@@ -15,6 +15,9 @@ for f in qwen_image_2.1-Q2_K.gguf Qwen3VL-8B-Instruct-Q4_K_M.gguf qwen_image_2.1
 cat >"$TMP/sd-cli" <<'EOF'
 #!/bin/sh
 echo "noisy engine details"
+if [ -n "${QWEN_TEST_ENV_FILE:-}" ]; then
+    printf '%s\n' "${GGML_METAL_N_CB:-unset}" >"$QWEN_TEST_ENV_FILE"
+fi
 if [ "${QWEN_TEST_HANG:-0}" = 1 ]; then
     trap '' INT TERM
     sleep 300 &
@@ -114,6 +117,11 @@ verbose_output="$("${run[@]}" 'verbose output' --verbose --output "$TMP/verbose.
 grep -q -- 'Engine command:' <<<"$verbose_output"
 grep -q -- 'noisy engine details' <<<"$verbose_output"
 grep -q -- '--verbose' <<<"$verbose_output"
+QWEN_TEST_ENV_FILE="$TMP/metal-n-cb" "${run[@]}" 'Metal scheduling' --output "$TMP/env.png" >/dev/null
+grep -qx -- '8' "$TMP/metal-n-cb"
+GGML_METAL_N_CB=4 QWEN_TEST_ENV_FILE="$TMP/metal-n-cb-override" \
+    "${run[@]}" 'Metal scheduling override' --output "$TMP/env-override.png" >/dev/null
+grep -qx -- '4' "$TMP/metal-n-cb-override"
 
 # SIGINT and SIGTERM share the same descendant-tree shutdown path. Exercise it
 # with an engine and worker that ignore polite signals, ensuring neither survives.

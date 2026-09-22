@@ -39,9 +39,10 @@ jobs:
         run: |
           set -euo pipefail
           stage="$RUNNER_TEMP/qwen-image-intel-mac"
-          mkdir -p "$stage/build/bin" "$stage/build/lib" "$stage/scripts" dist
+          mkdir -p "$stage/build/bin" "$stage/build/lib" "$stage/scripts" "$stage/patches" dist
           cp qwen-image install.sh README.md LICENSE "$stage/"
           cp scripts/doctor.sh scripts/download-models.sh scripts/build.sh scripts/engine-version.sh "$stage/scripts/"
+          cp patches/ggml-metal-command-buffers.patch "$stage/patches/"
           cp build/bin/sd-cli "$stage/build/bin/"
           cp -R build/lib/. "$stage/build/lib/"
           printf '%s\n' "$GITHUB_REF_NAME" > "$stage/.qwen-image-release"

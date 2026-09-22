@@ -11,6 +11,7 @@ Its low-memory design is based on upstream facilities:
 - model weights retained in system RAM and streamed within an automatically sized VRAM budget
 - Flash Attention and automatic graph segmentation
 - Metal concurrency disabled for stability on discrete AMD GPUs
+- diffusion graphs split across short Metal command buffers to avoid the Intel-macOS GPU watchdog
 
 The complete text-to-image download is about **8.3 GB**. Expect generation to be slow; this is an enablement project for constrained hardware, not a claim that a 4 GB 5300M performs like a modern CUDA GPU.
 
@@ -38,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/haseebeqx/qwen-image-intel-mac/main
 
 The web installer downloads the prebuilt, checksum-verified Intel macOS bundle from the latest GitHub release into `~/.local/share/qwen-image-intel-mac`. It checks the host and links `qwen-image` into `~/.local/bin`; it does not download models, install build tools, or compile the engine. Add the command directory to `PATH` if prompted.
 
-Models are downloaded to `~/.qwen-image` by default. To install a specific release, set `QWEN_INSTALL_VERSION` to its tag (for example, `v0.1.0`). Running the installer again updates the application bundle without affecting downloaded models.
+Models are downloaded to `~/.qwen-image` by default. To install a specific release, set `QWEN_INSTALL_VERSION` to its tag (for example, `v0.1.0`). Running the installer again cleanly replaces the application bundle with the selected release, removing obsolete bundle files without affecting downloaded models.
 
 If you prefer to inspect the source or build the engine locally, clone the repository and run:
 
@@ -155,7 +156,7 @@ Each invocation reloads roughly 7.4 GB of model parameters, so even a fast gener
 
 Normal runs show compact stage labels plus the engine's live progress bars, including completed/total denoising steps, model loading, and decoding. Use `--verbose` to bypass this display and stream the complete engine diagnostics. If a compact run fails, its captured engine output is printed automatically.
 
-Environment variables with the same purpose are also accepted: `QWEN_MODEL_DIR`, `QWEN_VRAM_GIB`, `QWEN_THREADS`, and `QWEN_METAL_DEVICE` (default `MTL0`). Set `QWEN_VRAM_GIB` or use `--vram` to override automatic sizing.
+Environment variables with the same purpose are also accepted: `QWEN_MODEL_DIR`, `QWEN_VRAM_GIB`, `QWEN_THREADS`, and `QWEN_METAL_DEVICE` (default `MTL0`). Set `QWEN_VRAM_GIB` or use `--vram` to override automatic sizing. The wrapper also defaults `GGML_METAL_N_CB` to `8`, using the project's small ggml patch to divide slow GPU work into watchdog-safe command buffers; advanced users can override it with a value from 1 through 8.
 
 ## Image editing (experimental)
 
@@ -185,6 +186,8 @@ qwen-image "prompt" --cpu --width 256 --height 256 --steps 1 --output outputs/cp
 ## How VRAM scaling works
 
 The weights do **not** all reside in VRAM. `stable-diffusion.cpp` inserts graph cuts between transformer blocks, maintains source parameters in RAM (or on disk), copies only the active segment to Metal, and evicts old segments under the configured budget. The Qwen3-VL encoder and VAE run on CPU so the AMD card is reserved for repeated denoising work. A 4 GB card uses the validated 3 GiB budget; 8–32 GB cards receive proportionally larger budgets and therefore require less aggressive segmentation.
+
+Graph cuts manage memory, but they do not necessarily make a compute submission short enough for the macOS GPU watchdog. The build therefore carries a narrow ggml patch that exposes command-buffer count through `GGML_METAL_N_CB`; the wrapper uses eight secondary buffers by default. This changes scheduling only, not model calculations or weights.
 
 This is distinct from fitting the whole Qwen-Image 2.1 pipeline in 4 GB. The full official BF16 pipeline is far larger, and the system still needs enough RAM and disk for quantized weights and temporary buffers.
 

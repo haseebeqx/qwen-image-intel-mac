@@ -27,6 +27,18 @@ git -C "$SRC" checkout --detach "$SD_CPP_COMMIT"
 git -C "$SRC" submodule sync --recursive
 git -C "$SRC" submodule update --init --recursive --depth 1
 
+# Intel AMD GPUs can exceed the macOS watchdog when ggml puts a large diffusion
+# graph into its default two Metal command buffers. Keep this small upstream
+# extension local and explicit until ggml exposes command-buffer sizing itself.
+metal_patch="$ROOT/patches/ggml-metal-command-buffers.patch"
+[[ -f "$metal_patch" ]] || { echo "error: missing $metal_patch" >&2; exit 1; }
+if git -C "$SRC/ggml" apply --check "$metal_patch" 2>/dev/null; then
+    git -C "$SRC/ggml" apply "$metal_patch"
+elif ! git -C "$SRC/ggml" apply --reverse --check "$metal_patch" 2>/dev/null; then
+    echo "error: Metal command-buffer patch does not apply cleanly" >&2
+    exit 1
+fi
+
 cmake -S "$SRC" -B "$BUILD" \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_METAL=ON \

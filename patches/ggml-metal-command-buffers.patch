@@ -1,0 +1,59 @@
+diff --git a/src/ggml-metal/ggml-metal-context.m b/src/ggml-metal/ggml-metal-context.m
+index 32d97cd..b7cf0fc 100644
+--- a/src/ggml-metal/ggml-metal-context.m
++++ b/src/ggml-metal/ggml-metal-context.m
+@@ -664,7 +664,7 @@ void ggml_metal_set_n_cb(ggml_metal_t ctx, int n_cb) {
+     if (ctx->n_cb != n_cb) {
+         ctx->n_cb = MIN(n_cb, GGML_METAL_MAX_COMMAND_BUFFERS);
+ 
+-        if (ctx->n_cb > 2) {
++        if (ctx->n_cb > 2 && getenv("GGML_METAL_N_CB") == NULL) {
+             GGML_LOG_WARN("%s: n_cb = %d, using n_cb > 2 is not recommended and can degrade the performance in some cases\n", __func__, n_cb);
+         }
+     }
+diff --git a/src/ggml-metal/ggml-metal.cpp b/src/ggml-metal/ggml-metal.cpp
+index a1003b3..6fd085c 100644
+--- a/src/ggml-metal/ggml-metal.cpp
++++ b/src/ggml-metal/ggml-metal.cpp
+@@ -589,6 +589,23 @@ static ggml_guid_t ggml_backend_metal_guid(void) {
+     return &guid;
+ }
+ 
++static int ggml_backend_metal_n_cb(void) {
++    const char * value = getenv("GGML_METAL_N_CB");
++    if (value == NULL) {
++        return 1;
++    }
++
++    char * end = NULL;
++    const long parsed = strtol(value, &end, 10);
++    if (end == value || *end != '\0' || parsed < 1 || parsed > 8) {
++        GGML_LOG_WARN("%s: ignoring invalid GGML_METAL_N_CB=%s (expected 1-8)\n",
++                      __func__, value);
++        return 1;
++    }
++
++    return (int) parsed;
++}
++
+ ggml_backend_t ggml_backend_metal_init(void) {
+     ggml_backend_dev_t dev = ggml_backend_reg_dev_get(ggml_backend_metal_reg(), 0);
+     ggml_metal_device_t ctx_dev = (ggml_metal_device_t)dev->context;
+@@ -608,7 +625,7 @@ ggml_backend_t ggml_backend_metal_init(void) {
+         /* .context   = */ ctx,
+     };
+ 
+-    ggml_backend_metal_set_n_cb(backend, 1);
++    ggml_backend_metal_set_n_cb(backend, ggml_backend_metal_n_cb());
+ 
+     return backend;
+ }
+@@ -702,7 +719,7 @@ static ggml_backend_t ggml_backend_metal_device_init_backend(ggml_backend_dev_t
+         /* .context   = */ ctx,
+     };
+ 
+-    ggml_backend_metal_set_n_cb(backend, 1);
++    ggml_backend_metal_set_n_cb(backend, ggml_backend_metal_n_cb());
+ 
+     return backend;
+ 
