@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  intel-macos:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Intel macOS engine
+        env:
+          CMAKE_OSX_DEPLOYMENT_TARGET: "14.0"
+        run: ./scripts/build.sh
+      - name: Bundle non-system runtime libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          executable=build/bin/sd-cli
+          mkdir -p build/lib
+          while IFS= read -r library; do
+            case "$library" in
+              /usr/local/*|/opt/homebrew/*)
+                name="$(basename "$library")"
+                cp -L "$library" "build/lib/$name"
+                install_name_tool -change "$library" "@executable_path/../lib/$name" "$executable"
+                ;;
+            esac
+          done < <(otool -L "$executable" | tail -n +2 | awk '{print $1}')
+          codesign --force --sign - "$executable"
+      - name: Create release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/qwen-image-intel-mac"
+          mkdir -p "$stage/build/bin" "$stage/build/lib" "$stage/scripts" dist
+          cp qwen-image install.sh README.md LICENSE "$stage/"
+          cp scripts/doctor.sh scripts/download-models.sh scripts/build.sh scripts/engine-version.sh "$stage/scripts/"
+          cp build/bin/sd-cli "$stage/build/bin/"
+          cp -R build/lib/. "$stage/build/lib/"
+          printf '%s\n' "$GITHUB_REF_NAME" > "$stage/.qwen-image-release"
+          tar -C "$stage" -czf dist/qwen-image-intel-mac-x86_64.tar.gz .
+          cd dist
+          shasum -a 256 qwen-image-intel-mac-x86_64.tar.gz > qwen-image-intel-mac-x86_64.tar.gz.sha256
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag

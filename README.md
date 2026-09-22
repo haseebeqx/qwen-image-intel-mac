@@ -21,8 +21,10 @@ Validated on a 2019 16-inch MacBook Pro (Core i7, 16 GB RAM, Radeon Pro 5300M 4 
 - Intel Mac, macOS 14 or newer
 - AMD GPU with Metal support and 4–32 GB VRAM
 - 16 GB system RAM (close other memory-heavy applications)
-- about 20 GB free disk space for sources, build products, and model files
-- Xcode Command Line Tools, CMake, Git, and curl
+- about 10 GB free disk space for the release and model files
+- curl (included with macOS)
+
+Building from source additionally requires about 20 GB free disk space, Xcode Command Line Tools, CMake, and Git.
 
 The model is governed by the [Qwen Research License Agreement](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE). Read it before downloading.
 
@@ -35,9 +37,11 @@ curl -fsSL https://raw.githubusercontent.com/haseebeqx/qwen-image-intel-mac/main
   | bash -s -- --accept-license
 ```
 
-The web installer clones the project to `~/.local/share/qwen-image-intel-mac`, checks the host, builds the pinned engine, downloads the models, and links `qwen-image` into `~/.local/bin`. Add that directory to `PATH` if the installer asks you to. Downloads resume if interrupted.
+The web installer downloads the prebuilt, checksum-verified Intel macOS bundle from the latest GitHub release into `~/.local/share/qwen-image-intel-mac`. It then checks the host, downloads the models, and links `qwen-image` into `~/.local/bin`; it does not install build tools or compile the engine. Add the command directory to `PATH` if prompted. Model downloads resume if interrupted.
 
-If you prefer to inspect scripts before running them, clone the repository and run:
+To install a specific release, set `QWEN_INSTALL_VERSION` to its tag (for example, `v0.1.0`). Running the installer again updates the application bundle while preserving downloaded models and generated output.
+
+If you prefer to inspect the source or build the engine locally, clone the repository and run:
 
 ```bash
 git clone https://github.com/haseebeqx/qwen-image-intel-mac.git
@@ -63,6 +67,32 @@ The second form is useful when model files are managed separately. Set `QWEN_MOD
 ```
 
 The default text-to-image set does not include the vision projector needed for image editing.
+
+## Uninstall
+
+Choose the commands that match how you installed the project.
+
+For the default web installation, remove the command link and the managed release directory (including its downloaded models):
+
+```bash
+rm -f "$HOME/.local/bin/qwen-image"
+rm -rf "$HOME/.local/share/qwen-image-intel-mac"
+```
+
+For an installation from a repository you cloned yourself, remove the command link and then remove the checkout if you no longer need it:
+
+```bash
+rm -f "$HOME/.local/bin/qwen-image"
+rm -rf /path/to/qwen-image-intel-mac
+```
+
+If you used `--bin-dir`, remove the link from that directory instead (use `sudo` only if the directory requires it):
+
+```bash
+sudo rm -f /usr/local/bin/qwen-image
+```
+
+A manual setup does not install a command link, so removing the checkout is sufficient. Models kept outside the checkout through `QWEN_MODEL_DIR` or `--model-dir` are not removed automatically and must be deleted separately if desired. Before removing a checkout, save any generated files under its `outputs/` directory that you want to keep.
 
 ## Generate
 

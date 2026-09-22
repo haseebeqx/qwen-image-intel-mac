@@ -1,33 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPOSITORY="${QWEN_REPOSITORY:-https://github.com/haseebeqx/qwen-image-intel-mac.git}"
-INSTALL_REF="${QWEN_INSTALL_REF:-main}"
+RELEASE_REPOSITORY="${QWEN_RELEASE_REPOSITORY:-haseebeqx/qwen-image-intel-mac}"
+INSTALL_VERSION="${QWEN_INSTALL_VERSION:-latest}"
 INSTALL_DIR="${QWEN_INSTALL_DIR:-${HOME}/.local/share/qwen-image-intel-mac}"
+ASSET_NAME="qwen-image-intel-mac-x86_64.tar.gz"
 
-if ! command -v git >/dev/null 2>&1; then
-    echo "error: Git is required to install qwen-image" >&2
+if [[ "$(uname -s)" != Darwin || "$(uname -m)" != x86_64 ]]; then
+    echo "error: the prebuilt release requires an Intel Mac" >&2
     exit 1
 fi
+command -v curl >/dev/null 2>&1 || { echo "error: curl is required to install qwen-image" >&2; exit 1; }
+command -v shasum >/dev/null 2>&1 || { echo "error: shasum is required to verify the download" >&2; exit 1; }
+
+if [[ "$INSTALL_VERSION" == latest ]]; then
+    release_base="https://github.com/$RELEASE_REPOSITORY/releases/latest/download"
+else
+    release_base="https://github.com/$RELEASE_REPOSITORY/releases/download/$INSTALL_VERSION"
+fi
+archive_url="${QWEN_RELEASE_URL:-$release_base/$ASSET_NAME}"
+checksum_url="${QWEN_RELEASE_CHECKSUM_URL:-$archive_url.sha256}"
 
 if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
-    if [[ ! -d "$INSTALL_DIR/.git" || ! -x "$INSTALL_DIR/install.sh" ]]; then
-        echo "error: $INSTALL_DIR already exists but is not a qwen-image checkout" >&2
+    if [[ ! -d "$INSTALL_DIR" || ( ! -f "$INSTALL_DIR/.qwen-image-release" && ! -d "$INSTALL_DIR/.git" ) ]]; then
+        echo "error: $INSTALL_DIR already exists but is not a qwen-image installation" >&2
         echo "Remove it or choose another location with QWEN_INSTALL_DIR." >&2
         exit 1
     fi
-
-    origin="$(git -C "$INSTALL_DIR" remote get-url origin 2>/dev/null || true)"
-    if [[ "$origin" != "$REPOSITORY" ]]; then
-        echo "error: $INSTALL_DIR has an unexpected Git origin: ${origin:-<none>}" >&2
-        echo "Expected: $REPOSITORY" >&2
-        exit 1
-    fi
-    echo "Using existing checkout: $INSTALL_DIR"
-else
-    mkdir -p "$(dirname "$INSTALL_DIR")"
-    echo "Cloning qwen-image-intel-mac into $INSTALL_DIR"
-    git clone --depth 1 --branch "$INSTALL_REF" -- "$REPOSITORY" "$INSTALL_DIR"
 fi
 
-exec "$INSTALL_DIR/install.sh" "$@"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+archive="$tmp/$ASSET_NAME"
+checksum="$tmp/$ASSET_NAME.sha256"
+
+echo "Downloading qwen-image release ($INSTALL_VERSION)..."
+curl -fL --retry 3 --output "$archive" "$archive_url"
+curl -fL --retry 3 --output "$checksum" "$checksum_url"
+expected="$(awk 'NR == 1 { print $1 }' "$checksum")"
+actual="$(shasum -a 256 "$archive" | awk '{ print $1 }')"
+if [[ ! "$expected" =~ ^[[:xdigit:]]{64}$ || "$actual" != "$expected" ]]; then
+    echo "error: release checksum verification failed" >&2
+    exit 1
+fi
+
+stage="$tmp/release"
+mkdir -p "$stage"
+tar -xzf "$archive" -C "$stage"
+[[ -f "$stage/.qwen-image-release" && -x "$stage/install.sh" && -x "$stage/build/bin/sd-cli" ]] || {
+    echo "error: release archive is incomplete" >&2
+    exit 1
+}
+
+mkdir -p "$INSTALL_DIR"
+cp -R "$stage"/. "$INSTALL_DIR"/
+exec "$INSTALL_DIR/install.sh" --skip-build "$@"

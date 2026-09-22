@@ -15,7 +15,7 @@ else
     echo "ok    Intel macOS host"
 fi
 
-for tool in git cmake curl xcrun; do check command -v "$tool"; done
+check command -v curl
 
 os_major="$(sw_vers -productVersion | cut -d. -f1)"
 if (( os_major < 14 )); then echo "FAIL  macOS 14+ required"; fail=1; else echo "ok    macOS $(sw_vers -productVersion)"; fi
@@ -59,7 +59,7 @@ fi
 
 free_kib="$(df -Pk "$ROOT" | awk 'NR==2 {print $4}')"
 free_gib=$((free_kib / 1024 / 1024))
-if (( free_gib < 18 )); then echo "WARN  ${free_gib} GiB disk free; about 20 GiB recommended"; else echo "ok    ${free_gib} GiB disk free"; fi
+if (( free_gib < 10 )); then echo "WARN  ${free_gib} GiB disk free; about 10 GiB recommended"; else echo "ok    ${free_gib} GiB disk free"; fi
 
 if [[ -x "$ROOT/build/bin/sd-cli" ]]; then
     echo "ok    engine built"
