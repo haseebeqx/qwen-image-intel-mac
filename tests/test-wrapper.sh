@@ -5,7 +5,18 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/models"
 for f in qwen_image_2.1-Q2_K.gguf Qwen3VL-8B-Instruct-Q4_K_M.gguf qwen_image_2.1_vae_bf16.safetensors; do printf x >"$TMP/models/$f"; done
-printf '#!/bin/sh\nexit 0\n' >"$TMP/sd-cli"
+cat >"$TMP/sd-cli" <<'EOF'
+#!/bin/sh
+echo "noisy engine details"
+if [ "${QWEN_TEST_PROGRESS:-0}" = 1 ]; then
+    printf '[INFO   ] request.cpp - sampling using Euler method\n'
+    printf '\r  |=========================                         | 1/2 - 1.00s/it\033[K'
+    printf '\r  |==================================================| 2/2 - 1.00s/it\033[K\n'
+    printf '[INFO   ] image.cpp - decoding 1 latents\n'
+    printf '\r  |==================================================| 1/1 - 1.00s/it\033[K\n'
+fi
+exit 0
+EOF
 chmod +x "$TMP/sd-cli"
 mkdir -p "$TMP/bin"
 cat >"$TMP/bin/system_profiler" <<'EOF'
@@ -34,6 +45,22 @@ grep -q -- '--diffusion-model' <<<"$output"
 grep -q -- 'diffusion=MTL0' <<<"$output"
 grep -q -- 'te=CPU' <<<"$output"
 grep -q -- '--diffusion-fa' <<<"$output"
+grep -q -- '--log-level info' <<<"$output"
+
+compact_output="$("${run[@]}" 'compact output' --output "$TMP/compact.png")"
+grep -q -- 'Generating 512x512 image (20 steps)' <<<"$compact_output"
+grep -q -- "Saved: $TMP/compact.png" <<<"$compact_output"
+if grep -q -- 'noisy engine details\|Engine command:' <<<"$compact_output"; then
+    echo "compact output leaked engine details" >&2; exit 1
+fi
+progress_output="$(QWEN_TEST_PROGRESS=1 "${run[@]}" 'progress output' --steps 2 --output "$TMP/progress.png")"
+grep -q -- 'Loading text encoder' <<<"$progress_output"
+grep -q -- '2/2' <<<"$progress_output"
+grep -q -- 'Decoding image' <<<"$progress_output"
+verbose_output="$("${run[@]}" 'verbose output' --verbose --output "$TMP/verbose.png")"
+grep -q -- 'Engine command:' <<<"$verbose_output"
+grep -q -- 'noisy engine details' <<<"$verbose_output"
+grep -q -- '--verbose' <<<"$verbose_output"
 
 # Cover the discrete VRAM capacities available across Intel Mac configurations.
 for profile in '4 3.0' '8 7.0' '16 15.0' '32 31.0'; do

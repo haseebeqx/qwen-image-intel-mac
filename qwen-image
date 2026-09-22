@@ -24,6 +24,7 @@ PROMPT=""
 CPU_ONLY=0
 DRY_RUN=0
 FAST=0
+VERBOSE=0
 WIDTH_SET=0
 HEIGHT_SET=0
 STEPS_SET=0
@@ -49,6 +50,7 @@ Options:
   --fast             faster useful preview: 256px, 12 steps, CFG 6
                      (explicit width/height/steps/cfg options still win)
   --cpu              CPU-only diagnostic run
+  --verbose          show the engine command and full engine output
   --dry-run          print command without running it
   -h, --help         show this help
 EOF
@@ -94,6 +96,7 @@ while (($#)); do
         --reference|-r) need_value "$@"; refs+=("$2"); shift 2 ;;
         --fast) FAST=1; shift ;;
         --cpu) CPU_ONLY=1; shift ;;
+        --verbose|-v) VERBOSE=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
         -h|--help) usage; exit 0 ;;
         --) shift; extra=("$@"); break ;;
@@ -148,7 +151,7 @@ cmd=("$ENGINE"
     --cfg-scale "$CFG" --sampling-method euler
     --threads "$THREADS" --rng cpu
     --vae-tiling --diffusion-fa
-    --output "$OUTPUT" --verbose)
+    --output "$OUTPUT" --log-level info)
 
 if (( CPU_ONLY )); then
     cmd+=(--backend cpu --params-backend cpu)
@@ -165,11 +168,14 @@ if ((${#refs[@]})); then
     cmd+=(--llm_vision "$VISION")
     for ref in "${refs[@]}"; do cmd+=(--ref-image "$ref"); done
 fi
+(( VERBOSE )) && cmd+=(--verbose)
 cmd+=("${extra[@]}")
 
-printf 'Engine command:'
-printf ' %q' "${cmd[@]}"
-printf '\n'
+if (( DRY_RUN || VERBOSE )); then
+    printf 'Engine command:'
+    printf ' %q' "${cmd[@]}"
+    printf '\n'
+fi
 (( DRY_RUN )) && exit 0
 
 # Current upstream supports this switch. Serial graph encoding avoids known command-buffer
@@ -177,5 +183,84 @@ printf '\n'
 export GGML_METAL_CONCURRENCY_DISABLE="${GGML_METAL_CONCURRENCY_DISABLE:-1}"
 export GGML_METAL_SHARED_BUFFERS_DISABLE="${GGML_METAL_SHARED_BUFFERS_DISABLE:-1}"
 
-"${cmd[@]}"
-echo "Saved: $OUTPUT"
+if (( VERBOSE )); then
+    "${cmd[@]}"
+else
+    log_file="$(mktemp "${TMPDIR:-/tmp}/qwen-image.XXXXXX")"
+    cleanup() { rm -f "$log_file"; }
+    trap cleanup EXIT
+
+    # Keep the engine's progress bars, but replace its diagnostic stream with
+    # short stage labels. The complete stream remains available on failure.
+    compact_engine_output() {
+        local line clean context=starting current_stage="" progress_active=0
+
+        show_stage() {
+            [[ "$current_stage" == "$1" ]] && return
+            (( progress_active )) && printf '\n'
+            printf '%s...\n' "$1"
+            current_stage="$1"
+            progress_active=0
+        }
+
+        while IFS= read -r line; do
+            clean="${line//$'\033[K'/}"
+            case "$clean" in
+                *"loading diffusion model from"*) context=metadata; show_stage "Reading image model" ;;
+                *"loading llm from"*) context=metadata; show_stage "Reading text encoder" ;;
+                *"loading vae from"*) context=metadata; show_stage "Reading image decoder" ;;
+                *"sampling using"*) context=encoding; show_stage "Encoding prompt" ;;
+                *"generating image:"*) context=generating; show_stage "Preparing image model" ;;
+                *"decoding "*" latents"*) context=decoding; show_stage "Loading image decoder" ;;
+                *"save result image"*) show_stage "Saving image" ;;
+                *"[WARN"*|*"[ERROR"*)
+                    (( progress_active )) && printf '\n'
+                    printf '%s\n' "$clean"
+                    progress_active=0
+                    ;;
+                *"|"*"/"*)
+                    if [[ "$context" == encoding ]]; then
+                        show_stage "Loading text encoder"
+                    elif [[ "$context" == generating && "$clean" =~ \|[[:space:]]+([0-9]+)/${STEPS}[[:space:]]+- ]]; then
+                        show_stage "Denoising ($STEPS steps)"
+                    elif [[ "$context" == generating ]]; then
+                        show_stage "Loading image model"
+                    elif [[ "$context" == decoding && "$current_stage" != "Decoding image" ]]; then
+                        show_stage "Loading image decoder"
+                    fi
+
+                    if [[ -t 1 ]]; then
+                        printf '\r\033[K  %s' "$clean"
+                    else
+                        printf '  %s\n' "$clean"
+                    fi
+                    progress_active=1
+
+                    # Once a weight-loading bar reaches N/N, name the compute
+                    # phase that follows while it is otherwise silent.
+                    if [[ "$clean" =~ \|[[:space:]]+([0-9]+)/([0-9]+)[[:space:]]+- ]] &&
+                       [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
+                        case "$context" in
+                            encoding) show_stage "Encoding prompt" ;;
+                            generating) show_stage "Denoising ($STEPS steps)" ;;
+                            decoding) show_stage "Decoding image" ;;
+                        esac
+                    fi
+                    ;;
+            esac
+        done
+        (( progress_active )) && printf '\n'
+        return 0
+    }
+
+    printf 'Generating %sx%s image (%s steps)\n' "$WIDTH" "$HEIGHT" "$STEPS"
+    if "${cmd[@]}" 2>&1 | tee "$log_file" | tr '\r' '\n' | compact_engine_output; then
+        :
+    else
+        status=$?
+        echo "Generation failed. Complete engine output:" >&2
+        while IFS= read -r line; do printf '  %s\n' "$line" >&2; done <"$log_file"
+        exit "$status"
+    fi
+fi
+printf 'Saved: %s\n' "$OUTPUT"

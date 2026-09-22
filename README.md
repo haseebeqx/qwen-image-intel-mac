@@ -117,9 +117,12 @@ Each invocation reloads roughly 7.4 GB of model parameters, so even a fast gener
 --model-dir PATH   model directory (default ./models)
 --fast             256px, 12-step, CFG-6 preview profile
 --cpu              diagnostic CPU-only mode
+--verbose          show the engine command and full engine output
 --dry-run          validate and print the engine command
 --                 pass remaining arguments directly to sd-cli
 ```
+
+Normal runs show compact stage labels plus the engine's live progress bars, including completed/total denoising steps, model loading, and decoding. Use `--verbose` to bypass this display and stream the complete engine diagnostics. If a compact run fails, its captured engine output is printed automatically.
 
 Environment variables with the same purpose are also accepted: `QWEN_MODEL_DIR`, `QWEN_VRAM_GIB`, `QWEN_THREADS`, and `QWEN_METAL_DEVICE` (default `MTL0`). Set `QWEN_VRAM_GIB` or use `--vram` to override automatic sizing.
 
