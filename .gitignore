@@ -1,0 +1,16 @@
+# Local build and downloaded third-party source
+build/
+vendor/
+
+# Large model artifacts and generated images
+models/
+outputs/
+*.gguf
+*.safetensors
+
+# Local configuration and logs
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

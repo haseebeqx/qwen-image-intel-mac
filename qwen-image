@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve symlinks so an installed ~/.local/bin/qwen-image still finds this checkout.
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+    SOURCE_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" == /* ]] || SOURCE="$SOURCE_DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+ENGINE="${QWEN_ENGINE:-$ROOT/build/bin/sd-cli}"
+MODEL_DIR="${QWEN_MODEL_DIR:-$ROOT/models}"
+DEVICE="${QWEN_METAL_DEVICE:-MTL0}"
+VRAM="${QWEN_VRAM_GIB:-auto}"
+THREADS="${QWEN_THREADS:-$(sysctl -n hw.physicalcpu 2>/dev/null || echo 6)}"
+WIDTH=512
+HEIGHT=512
+STEPS=20
+SEED=42
+CFG=6.0
+OUTPUT="$ROOT/outputs/qwen-$(date +%Y%m%d-%H%M%S).png"
+PROMPT=""
+CPU_ONLY=0
+DRY_RUN=0
+FAST=0
+WIDTH_SET=0
+HEIGHT_SET=0
+STEPS_SET=0
+CFG_SET=0
+refs=()
+extra=()
+
+usage() {
+    cat <<'EOF'
+Usage: qwen-image "PROMPT" [options] [-- SD-CLI-OPTIONS]
+
+Options:
+  --width N          output width, multiple of 32 (default 512)
+  --height N         output height, multiple of 32 (default 512)
+  --steps N          denoising steps (default 20)
+  --seed N           RNG seed (default 42)
+  --cfg N            CFG scale (default 6.0)
+  --vram N           managed Metal budget in GiB (default: auto; GPU VRAM minus 1 GiB)
+  --threads N        CPU threads
+  --output PATH      output PNG path
+  --model-dir PATH   model directory
+  --reference PATH   reference image; may be repeated (editing)
+  --fast             faster useful preview: 256px, 12 steps, CFG 6
+                     (explicit width/height/steps/cfg options still win)
+  --cpu              CPU-only diagnostic run
+  --dry-run          print command without running it
+  -h, --help         show this help
+EOF
+}
+
+need_value() { [[ $# -ge 2 ]] || { echo "error: $1 needs a value" >&2; exit 2; }; }
+
+# Keep one GiB free for the display server and Metal workspace. If detection is
+# unavailable, retain the conservative value used by the validated 4 GiB Mac.
+auto_vram_budget() {
+    local detected
+    detected="$(system_profiler SPDisplaysDataType 2>/dev/null | awk '
+        /Chipset Model:/ { amd = ($0 ~ /(AMD|Radeon)/) }
+        amd && /VRAM \(Total\):/ {
+            value = $0
+            sub(/^.*:[[:space:]]*/, "", value)
+            split(value, fields, /[[:space:]]+/)
+            amount = fields[1] + 0
+            unit = toupper(fields[2])
+            if (unit ~ /^GB/) printf "%.1f", amount - 1
+            else if (unit ~ /^MB/) printf "%.1f", amount / 1024 - 1
+            exit
+        }
+    ' || true)"
+    if [[ "$detected" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk -v n="$detected" 'BEGIN { exit !(n >= 3) }'; then
+        printf '%s\n' "$detected"
+    else
+        printf '3.0\n'
+    fi
+}
+
+while (($#)); do
+    case "$1" in
+        --width) need_value "$@"; WIDTH="$2"; WIDTH_SET=1; shift 2 ;;
+        --height) need_value "$@"; HEIGHT="$2"; HEIGHT_SET=1; shift 2 ;;
+        --steps) need_value "$@"; STEPS="$2"; STEPS_SET=1; shift 2 ;;
+        --seed) need_value "$@"; SEED="$2"; shift 2 ;;
+        --cfg) need_value "$@"; CFG="$2"; CFG_SET=1; shift 2 ;;
+        --vram) need_value "$@"; VRAM="$2"; shift 2 ;;
+        --threads) need_value "$@"; THREADS="$2"; shift 2 ;;
+        --output|-o) need_value "$@"; OUTPUT="$2"; shift 2 ;;
+        --model-dir) need_value "$@"; MODEL_DIR="$2"; shift 2 ;;
+        --reference|-r) need_value "$@"; refs+=("$2"); shift 2 ;;
+        --fast) FAST=1; shift ;;
+        --cpu) CPU_ONLY=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; extra=("$@"); break ;;
+        -*) echo "error: unknown option $1 (put raw sd-cli options after --)" >&2; exit 2 ;;
+        *)
+            [[ -z "$PROMPT" ]] || { echo "error: prompt was supplied more than once" >&2; exit 2; }
+            PROMPT="$1"; shift ;;
+    esac
+done
+
+if (( FAST )); then
+    (( WIDTH_SET )) || WIDTH=256
+    (( HEIGHT_SET )) || HEIGHT=256
+    (( STEPS_SET )) || STEPS=12
+    (( CFG_SET )) || CFG=6.0
+fi
+
+[[ -n "$PROMPT" ]] || { echo "error: a prompt is required" >&2; usage >&2; exit 2; }
+[[ "$WIDTH" =~ ^[0-9]+$ && "$HEIGHT" =~ ^[0-9]+$ ]] || { echo "error: width and height must be integers" >&2; exit 2; }
+(( WIDTH >= 256 && HEIGHT >= 256 && WIDTH % 32 == 0 && HEIGHT % 32 == 0 )) || {
+    echo "error: width and height must be at least 256 and divisible by 32" >&2; exit 2;
+}
+[[ "$STEPS" =~ ^[0-9]+$ ]] && (( STEPS > 0 )) || { echo "error: steps must be positive" >&2; exit 2; }
+[[ "$THREADS" =~ ^[0-9]+$ ]] && (( THREADS > 0 )) || { echo "error: threads must be positive" >&2; exit 2; }
+[[ "$VRAM" == auto ]] && VRAM="$(auto_vram_budget)"
+[[ "$VRAM" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk -v n="$VRAM" 'BEGIN { exit !(n > 0) }' || {
+    echo "error: vram must be a positive number or auto" >&2; exit 2;
+}
+
+DIFFUSION="$MODEL_DIR/qwen_image_2.1-Q2_K.gguf"
+LLM="$MODEL_DIR/Qwen3VL-8B-Instruct-Q4_K_M.gguf"
+VAE="$MODEL_DIR/qwen_image_2.1_vae_bf16.safetensors"
+VISION="$MODEL_DIR/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf"
+
+[[ -x "$ENGINE" ]] || { echo "error: engine not built; run ./scripts/build.sh" >&2; exit 1; }
+for file in "$DIFFUSION" "$LLM" "$VAE"; do
+    [[ -s "$file" ]] || { echo "error: missing model $file; run ./scripts/download-models.sh --accept-license" >&2; exit 1; }
+done
+if ((${#refs[@]})); then
+    [[ -s "$VISION" ]] || { echo "error: editing projector missing; rerun download-models.sh with --editing" >&2; exit 1; }
+    for file in "${refs[@]}"; do [[ -f "$file" ]] || { echo "error: reference not found: $file" >&2; exit 1; }; done
+fi
+
+mkdir -p "$(dirname "$OUTPUT")"
+cmd=("$ENGINE"
+    --diffusion-model "$DIFFUSION"
+    --vae "$VAE"
+    --llm "$LLM"
+    --prompt "$PROMPT"
+    --width "$WIDTH" --height "$HEIGHT"
+    --steps "$STEPS" --seed "$SEED"
+    --cfg-scale "$CFG" --sampling-method euler
+    --threads "$THREADS" --rng cpu
+    --vae-tiling --diffusion-fa
+    --output "$OUTPUT" --verbose)
+
+if (( CPU_ONLY )); then
+    cmd+=(--backend cpu --params-backend cpu)
+else
+    cmd+=(--backend "diffusion=$DEVICE,te=CPU,vae=CPU" --max-vram "$DEVICE=$VRAM")
+    if [[ "${QWEN_DISK_PARAMS:-0}" == 1 ]]; then
+        cmd+=(--params-backend "diffusion=disk,te=cpu,vae=cpu")
+    else
+        cmd+=(--params-backend cpu)
+    fi
+fi
+
+if ((${#refs[@]})); then
+    cmd+=(--llm_vision "$VISION")
+    for ref in "${refs[@]}"; do cmd+=(--ref-image "$ref"); done
+fi
+cmd+=("${extra[@]}")
+
+printf 'Engine command:'
+printf ' %q' "${cmd[@]}"
+printf '\n'
+(( DRY_RUN )) && exit 0
+
+# Current upstream supports this switch. Serial graph encoding avoids known command-buffer
+# races on Intel Macs with discrete AMD Metal devices.
+export GGML_METAL_CONCURRENCY_DISABLE="${GGML_METAL_CONCURRENCY_DISABLE:-1}"
+export GGML_METAL_SHARED_BUFFERS_DISABLE="${GGML_METAL_SHARED_BUFFERS_DISABLE:-1}"
+
+"${cmd[@]}"
+echo "Saved: $OUTPUT"

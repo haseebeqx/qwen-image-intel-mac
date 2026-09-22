@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach model files, access tokens, or private prompts.
+  - type: input
+    id: revision
+    attributes:
+      label: Repository revision
+      description: Output of `git rev-parse --short HEAD`
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: System
+      description: macOS version, Mac model, GPU/VRAM, and system RAM
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Remove secrets and personal paths.
+      render: text
