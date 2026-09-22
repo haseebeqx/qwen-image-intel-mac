@@ -43,9 +43,9 @@ git -C "$SRC" submodule update --init --recursive --depth 1
 # extension local and explicit until ggml exposes command-buffer sizing itself.
 metal_patch="$ROOT/patches/ggml-metal-command-buffers.patch"
 [[ -f "$metal_patch" ]] || { echo "error: missing $metal_patch" >&2; exit 1; }
-if git -C "$SRC/ggml" apply --check "$metal_patch" 2>/dev/null; then
-    git -C "$SRC/ggml" apply "$metal_patch"
-elif ! git -C "$SRC/ggml" apply --reverse --check "$metal_patch" 2>/dev/null; then
+if git -C "$SRC/ggml" apply --unidiff-zero --check "$metal_patch" 2>/dev/null; then
+    git -C "$SRC/ggml" apply --unidiff-zero "$metal_patch"
+elif ! git -C "$SRC/ggml" apply --unidiff-zero --reverse --check "$metal_patch" 2>/dev/null; then
     echo "error: Metal command-buffer patch does not apply cleanly" >&2
     exit 1
 fi

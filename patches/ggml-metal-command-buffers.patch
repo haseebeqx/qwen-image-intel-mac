@@ -1,24 +1,33 @@
 diff --git a/src/ggml-metal/ggml-metal-context.m b/src/ggml-metal/ggml-metal-context.m
-index 32d97cd..b7cf0fc 100644
+index 32d97cd..e5ff09a 100644
 --- a/src/ggml-metal/ggml-metal-context.m
 +++ b/src/ggml-metal/ggml-metal-context.m
-@@ -664,7 +664,7 @@ void ggml_metal_set_n_cb(ggml_metal_t ctx, int n_cb) {
-     if (ctx->n_cb != n_cb) {
-         ctx->n_cb = MIN(n_cb, GGML_METAL_MAX_COMMAND_BUFFERS);
- 
+@@ -20 +20 @@
+-#define GGML_METAL_MAX_COMMAND_BUFFERS 8
++#define GGML_METAL_MAX_COMMAND_BUFFERS 32
+@@ -444,3 +443,0 @@ enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph *
+-    // number of nodes encoded by the main thread (empirically determined)
+-    const int n_main = MAX(64, 0.1*gf->n_nodes);
+-
+@@ -449,0 +447,10 @@ enum ggml_status ggml_metal_graph_compute(ggml_metal_t ctx, struct ggml_cgraph *
++    // Upstream front-loads at least 64 nodes into the main command buffer to
++    // overlap GPU execution with encoding the remaining buffers. On slow
++    // discrete GPUs that buffer can exceed the macOS watchdog even when the
++    // rest of the graph is split widely. With an explicit high buffer count,
++    // divide all nodes evenly instead; throughput is secondary to bounded
++    // command-buffer duration in this mode.
++    const int n_main = n_cb > 2
++        ? (gf->n_nodes + n_cb) / (n_cb + 1)
++        : MAX(64, 0.1*gf->n_nodes);
++
+@@ -667 +674 @@ void ggml_metal_set_n_cb(ggml_metal_t ctx, int n_cb) {
 -        if (ctx->n_cb > 2) {
 +        if (ctx->n_cb > 2 && getenv("GGML_METAL_N_CB") == NULL) {
-             GGML_LOG_WARN("%s: n_cb = %d, using n_cb > 2 is not recommended and can degrade the performance in some cases\n", __func__, n_cb);
-         }
-     }
 diff --git a/src/ggml-metal/ggml-metal.cpp b/src/ggml-metal/ggml-metal.cpp
-index a1003b3..6fd085c 100644
+index a1003b3..cce983c 100644
 --- a/src/ggml-metal/ggml-metal.cpp
 +++ b/src/ggml-metal/ggml-metal.cpp
-@@ -589,6 +589,23 @@ static ggml_guid_t ggml_backend_metal_guid(void) {
-     return &guid;
- }
- 
+@@ -591,0 +592,17 @@ static ggml_guid_t ggml_backend_metal_guid(void) {
 +static int ggml_backend_metal_n_cb(void) {
 +    const char * value = getenv("GGML_METAL_N_CB");
 +    if (value == NULL) {
@@ -27,8 +36,8 @@ index a1003b3..6fd085c 100644
 +
 +    char * end = NULL;
 +    const long parsed = strtol(value, &end, 10);
-+    if (end == value || *end != '\0' || parsed < 1 || parsed > 8) {
-+        GGML_LOG_WARN("%s: ignoring invalid GGML_METAL_N_CB=%s (expected 1-8)\n",
++    if (end == value || *end != '\0' || parsed < 1 || parsed > 32) {
++        GGML_LOG_WARN("%s: ignoring invalid GGML_METAL_N_CB=%s (expected 1-32)\n",
 +                      __func__, value);
 +        return 1;
 +    }
@@ -36,24 +45,9 @@ index a1003b3..6fd085c 100644
 +    return (int) parsed;
 +}
 +
- ggml_backend_t ggml_backend_metal_init(void) {
-     ggml_backend_dev_t dev = ggml_backend_reg_dev_get(ggml_backend_metal_reg(), 0);
-     ggml_metal_device_t ctx_dev = (ggml_metal_device_t)dev->context;
-@@ -608,7 +625,7 @@ ggml_backend_t ggml_backend_metal_init(void) {
-         /* .context   = */ ctx,
-     };
- 
+@@ -611 +628 @@ ggml_backend_t ggml_backend_metal_init(void) {
 -    ggml_backend_metal_set_n_cb(backend, 1);
 +    ggml_backend_metal_set_n_cb(backend, ggml_backend_metal_n_cb());
- 
-     return backend;
- }
-@@ -702,7 +719,7 @@ static ggml_backend_t ggml_backend_metal_device_init_backend(ggml_backend_dev_t
-         /* .context   = */ ctx,
-     };
- 
+@@ -705 +722 @@ static ggml_backend_t ggml_backend_metal_device_init_backend(ggml_backend_dev_t
 -    ggml_backend_metal_set_n_cb(backend, 1);
 +    ggml_backend_metal_set_n_cb(backend, ggml_backend_metal_n_cb());
- 
-     return backend;
- 

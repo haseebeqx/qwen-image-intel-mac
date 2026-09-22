@@ -126,7 +126,7 @@ grep -q -- 'Engine command:' <<<"$verbose_output"
 grep -q -- 'noisy engine details' <<<"$verbose_output"
 grep -q -- '--verbose' <<<"$verbose_output"
 QWEN_TEST_ENV_FILE="$TMP/metal-n-cb" "${run[@]}" 'Metal scheduling' --output "$TMP/env.png" >/dev/null
-grep -qx -- '8' "$TMP/metal-n-cb"
+grep -qx -- '32' "$TMP/metal-n-cb"
 GGML_METAL_N_CB=4 QWEN_TEST_ENV_FILE="$TMP/metal-n-cb-override" \
     "${run[@]}" 'Metal scheduling override' --output "$TMP/env-override.png" >/dev/null
 grep -qx -- '4' "$TMP/metal-n-cb-override"

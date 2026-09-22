@@ -158,7 +158,7 @@ Each invocation reads about 8.3 GB (7.7 GiB) of model files, so even a fast gene
 
 Normal runs show compact stage labels plus the engine's live progress bars, including completed/total denoising steps, model loading, and decoding. Use `--verbose` to bypass this display and stream the complete engine diagnostics. If a compact run fails, its captured engine output is printed automatically.
 
-Environment variables with the same purpose are also accepted: `QWEN_MODEL_DIR`, `QWEN_VRAM_GIB`, `QWEN_THREADS`, and `QWEN_METAL_DEVICE` (default `MTL0`). Set `QWEN_VRAM_GIB` or use `--vram` to override automatic sizing. The wrapper also defaults `GGML_METAL_N_CB` to `8`, using the project's small ggml patch to divide slow GPU work into watchdog-safe command buffers; advanced users can override it with a value from 1 through 8.
+Environment variables with the same purpose are also accepted: `QWEN_MODEL_DIR`, `QWEN_VRAM_GIB`, `QWEN_THREADS`, and `QWEN_METAL_DEVICE` (default `MTL0`). Set `QWEN_VRAM_GIB` or use `--vram` to override automatic sizing. The wrapper also defaults `GGML_METAL_N_CB` to `32`, using the project's small ggml patch to balance slow GPU work across watchdog-safe command buffers; advanced users can override it with a value from 1 through 32.
 
 ## Image editing (experimental)
 
@@ -189,7 +189,7 @@ qwen-image "prompt" --cpu --width 256 --height 256 --steps 1 --output outputs/cp
 
 The weights do **not** all reside in VRAM. `stable-diffusion.cpp` inserts graph cuts between transformer blocks, maintains source parameters in RAM (or on disk), copies only the active segment to Metal, and evicts old segments under the configured budget. The Qwen3-VL encoder and VAE run on CPU so the AMD card is reserved for repeated denoising work. A 4 GB card uses the validated 3 GiB budget; 8–32 GB cards receive proportionally larger budgets and therefore require less aggressive segmentation.
 
-Graph cuts manage memory, but they do not necessarily make a compute submission short enough for the macOS GPU watchdog. The build therefore carries a narrow ggml patch that exposes command-buffer count through `GGML_METAL_N_CB`; the wrapper uses eight secondary buffers by default. This changes scheduling only, not model calculations or weights.
+Graph cuts manage memory, but they do not necessarily make a compute submission short enough for the macOS GPU watchdog. The build therefore carries a narrow ggml patch that exposes command-buffer count through `GGML_METAL_N_CB`; the wrapper balances the graph across one main and 32 secondary buffers by default. Unlike ggml's normal scheduling, watchdog mode also avoids front-loading at least 64 nodes into the main buffer—the source of the remaining `command buffer 8` timeout. This changes scheduling only, not model calculations or weights.
 
 This is distinct from fitting the whole Qwen-Image 2.1 pipeline in 4 GB. The full official BF16 pipeline is far larger, and the system still needs enough RAM and disk for quantized weights and temporary buffers.
 
