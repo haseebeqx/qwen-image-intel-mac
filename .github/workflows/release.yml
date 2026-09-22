@@ -17,6 +17,7 @@ jobs:
       - name: Build Intel macOS engine
         env:
           CMAKE_OSX_DEPLOYMENT_TARGET: "14.0"
+          QWEN_IMAGE_VERSION: ${{ github.ref_name }}
         run: ./scripts/build.sh
       - name: Bundle non-system runtime libraries
         shell: bash
@@ -45,7 +46,7 @@ jobs:
           cp patches/ggml-metal-command-buffers.patch "$stage/patches/"
           cp build/bin/sd-cli "$stage/build/bin/"
           cp -R build/lib/. "$stage/build/lib/"
-          printf '%s\n' "$GITHUB_REF_NAME" > "$stage/.qwen-image-release"
+          cp .qwen-image-release "$stage/"
           tar -C "$stage" -czf dist/qwen-image-intel-mac-x86_64.tar.gz .
           cd dist
           shasum -a 256 qwen-image-intel-mac-x86_64.tar.gz > qwen-image-intel-mac-x86_64.tar.gz.sha256

@@ -1,6 +1,7 @@
 # Local build and downloaded third-party source
 build/
 vendor/
+.qwen-image-release
 
 # Large model artifacts and generated images
 models/

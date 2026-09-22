@@ -33,6 +33,17 @@ CFG_SET=0
 refs=()
 extra=()
 
+print_version() {
+    local version=""
+    if [[ -r "$ROOT/.qwen-image-release" ]]; then
+        version="$(head -n 1 "$ROOT/.qwen-image-release")"
+    elif command -v git >/dev/null 2>&1; then
+        version="$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || true)"
+    fi
+    [[ -n "$version" ]] || version="unknown"
+    printf 'qwen-image %s\n' "$version"
+}
+
 usage() {
     cat <<'EOF'
 Usage: qwen-image "PROMPT" [options] [-- SD-CLI-OPTIONS]
@@ -53,6 +64,7 @@ Options:
   --cpu              CPU-only diagnostic run
   --verbose          show the engine command and full engine output
   --dry-run          print command without running it
+  -V, --version      show the qwen-image version
   -h, --help         show this help
 EOF
 }
@@ -99,6 +111,7 @@ while (($#)); do
         --cpu) CPU_ONLY=1; shift ;;
         --verbose|-v) VERBOSE=1; shift ;;
         --dry-run) DRY_RUN=1; shift ;;
+        -V|--version) print_version; exit 0 ;;
         -h|--help) usage; exit 0 ;;
         --) shift; extra=("$@"); break ;;
         -*) echo "error: unknown option $1 (put raw sd-cli options after --)" >&2; exit 2 ;;

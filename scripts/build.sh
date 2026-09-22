@@ -6,12 +6,23 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/engine-version.sh"
 SRC="$ROOT/vendor/stable-diffusion.cpp"
 BUILD="$ROOT/build"
+VERSION="${QWEN_IMAGE_VERSION:-}"
 
 for tool in git cmake xcrun; do
     command -v "$tool" >/dev/null || { echo "error: missing $tool" >&2; exit 1; }
 done
 [[ "$(uname -s)" == Darwin ]] || { echo "error: this build targets macOS" >&2; exit 1; }
 
+if [[ -z "$VERSION" ]]; then
+    VERSION="$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || true)"
+fi
+[[ -n "$VERSION" && "$VERSION" != *$'\n'* ]] || {
+    echo "error: could not determine a valid qwen-image version" >&2
+    exit 1
+}
+printf '%s\n' "$VERSION" >"$ROOT/.qwen-image-release"
+
+echo "Building qwen-image $VERSION..."
 mkdir -p "$ROOT/vendor"
 if [[ ! -e "$SRC" ]]; then
     echo "Cloning stable-diffusion.cpp..."

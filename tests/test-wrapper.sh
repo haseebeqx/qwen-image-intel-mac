@@ -52,6 +52,14 @@ chmod +x "$TMP/bin/system_profiler"
 run=(env QWEN_ENGINE="$TMP/sd-cli" QWEN_MODEL_DIR="$TMP/models" "$ROOT/qwen-image")
 
 "$ROOT/qwen-image" --help >/dev/null
+# Release bundles carry their tag in a marker file; version checks must not need
+# the engine or models.
+version_dir="$TMP/version-bundle"
+mkdir -p "$version_dir"
+cp "$ROOT/qwen-image" "$version_dir/qwen-image"
+printf 'v9.8.7\n' >"$version_dir/.qwen-image-release"
+[[ "$(QWEN_MODEL_DOWNLOADER=/usr/bin/false "$version_dir/qwen-image" --version)" == 'qwen-image v9.8.7' ]]
+[[ "$(QWEN_MODEL_DOWNLOADER=/usr/bin/false "$version_dir/qwen-image" -V)" == 'qwen-image v9.8.7' ]]
 # Help must remain side-effect free, while the first real run lazily fetches models.
 empty_models="$TMP/lazy-models"
 if ! env QWEN_MODEL_DIR="$empty_models" QWEN_MODEL_DOWNLOADER=/usr/bin/false "$ROOT/qwen-image" --help >/dev/null; then

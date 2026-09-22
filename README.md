@@ -152,6 +152,7 @@ Each invocation reads about 8.3 GB (7.7 GiB) of model files, so even a fast gene
 --cpu              diagnostic CPU-only mode
 --verbose          show the engine command and full engine output
 --dry-run          validate and print the engine command
+-V, --version      show the qwen-image version
 --                 pass remaining arguments directly to sd-cli
 ```
 
