@@ -10,7 +10,8 @@ while [[ -L "$SOURCE" ]]; do
 done
 ROOT="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 ENGINE="${QWEN_ENGINE:-$ROOT/build/bin/sd-cli}"
-MODEL_DIR="${QWEN_MODEL_DIR:-$ROOT/models}"
+MODEL_DIR="${QWEN_MODEL_DIR:-$HOME/.qwen-image}"
+MODEL_DOWNLOADER="${QWEN_MODEL_DOWNLOADER:-$ROOT/scripts/download-models.sh}"
 DEVICE="${QWEN_METAL_DEVICE:-MTL0}"
 VRAM="${QWEN_VRAM_GIB:-auto}"
 THREADS="${QWEN_THREADS:-$(sysctl -n hw.physicalcpu 2>/dev/null || echo 6)}"
@@ -45,7 +46,7 @@ Options:
   --vram N           managed Metal budget in GiB (default: auto; GPU VRAM minus 1 GiB)
   --threads N        CPU threads
   --output PATH      output PNG path
-  --model-dir PATH   model directory
+  --model-dir PATH   model directory (default ~/.qwen-image)
   --reference PATH   reference image; may be repeated (editing)
   --fast             faster useful preview: 256px, 12 steps, CFG 6
                      (explicit width/height/steps/cfg options still win)
@@ -132,12 +133,30 @@ VAE="$MODEL_DIR/qwen_image_2.1_vae_bf16.safetensors"
 VISION="$MODEL_DIR/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf"
 
 [[ -x "$ENGINE" ]] || { echo "error: engine not built; run ./scripts/build.sh" >&2; exit 1; }
+if ((${#refs[@]})); then
+    for file in "${refs[@]}"; do [[ -f "$file" ]] || { echo "error: reference not found: $file" >&2; exit 1; }; done
+fi
+
+missing_models=0
 for file in "$DIFFUSION" "$LLM" "$VAE"; do
-    [[ -s "$file" ]] || { echo "error: missing model $file; run ./scripts/download-models.sh --accept-license" >&2; exit 1; }
+    [[ -s "$file" ]] || missing_models=1
+done
+if ((${#refs[@]})) && [[ ! -s "$VISION" ]]; then missing_models=1; fi
+if (( missing_models )); then
+    [[ -x "$MODEL_DOWNLOADER" ]] || { echo "error: model downloader not found: $MODEL_DOWNLOADER" >&2; exit 1; }
+    echo "Required models are missing; downloading them to $MODEL_DIR ..."
+    echo "Model weights are governed by the Qwen Research License Agreement:"
+    echo "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
+    download_args=(--accept-license --model-dir "$MODEL_DIR")
+    ((${#refs[@]})) && download_args+=(--editing)
+    "$MODEL_DOWNLOADER" "${download_args[@]}"
+fi
+
+for file in "$DIFFUSION" "$LLM" "$VAE"; do
+    [[ -s "$file" ]] || { echo "error: model download did not produce $file" >&2; exit 1; }
 done
 if ((${#refs[@]})); then
-    [[ -s "$VISION" ]] || { echo "error: editing projector missing; rerun download-models.sh with --editing" >&2; exit 1; }
-    for file in "${refs[@]}"; do [[ -f "$file" ]] || { echo "error: reference not found: $file" >&2; exit 1; }; done
+    [[ -s "$VISION" ]] || { echo "error: model download did not produce $VISION" >&2; exit 1; }
 fi
 
 mkdir -p "$(dirname "$OUTPUT")"

@@ -49,6 +49,46 @@ chmod +x "$TMP/bin/system_profiler"
 run=(env QWEN_ENGINE="$TMP/sd-cli" QWEN_MODEL_DIR="$TMP/models" "$ROOT/qwen-image")
 
 "$ROOT/qwen-image" --help >/dev/null
+# Help must remain side-effect free, while the first real run lazily fetches models.
+empty_models="$TMP/lazy-models"
+if ! env QWEN_MODEL_DIR="$empty_models" QWEN_MODEL_DOWNLOADER=/usr/bin/false "$ROOT/qwen-image" --help >/dev/null; then
+    echo "help unexpectedly attempted a model download" >&2; exit 1
+fi
+cat >"$TMP/model-downloader" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$QWEN_TEST_DOWNLOAD_LOG"
+model_dir=""
+editing=0
+while (($#)); do
+    case "$1" in
+        --model-dir) model_dir="$2"; shift 2 ;;
+        --editing) editing=1; shift ;;
+        *) shift ;;
+    esac
+done
+mkdir -p "$model_dir"
+for name in qwen_image_2.1-Q2_K.gguf Qwen3VL-8B-Instruct-Q4_K_M.gguf qwen_image_2.1_vae_bf16.safetensors; do
+    printf x >"$model_dir/$name"
+done
+if (( editing )); then printf x >"$model_dir/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf"; fi
+EOF
+chmod +x "$TMP/model-downloader"
+lazy_output="$(env QWEN_ENGINE="$TMP/sd-cli" QWEN_MODEL_DIR="$empty_models" \
+    QWEN_MODEL_DOWNLOADER="$TMP/model-downloader" QWEN_TEST_DOWNLOAD_LOG="$TMP/download.log" \
+    "$ROOT/qwen-image" 'lazy download' --dry-run)"
+grep -q -- 'Required models are missing' <<<"$lazy_output"
+grep -q -- "--accept-license --model-dir $empty_models" "$TMP/download.log"
+for name in qwen_image_2.1-Q2_K.gguf Qwen3VL-8B-Instruct-Q4_K_M.gguf qwen_image_2.1_vae_bf16.safetensors; do
+    [[ -s "$empty_models/$name" ]]
+done
+
+default_models="$TMP/home/.qwen-image"
+env HOME="$TMP/home" QWEN_ENGINE="$TMP/sd-cli" \
+    QWEN_MODEL_DOWNLOADER="$TMP/model-downloader" QWEN_TEST_DOWNLOAD_LOG="$TMP/default-download.log" \
+    "$ROOT/qwen-image" 'default model directory' --dry-run >/dev/null
+grep -qx -- "--accept-license --model-dir $default_models" "$TMP/default-download.log"
+[[ -s "$default_models/qwen_image_2.1-Q2_K.gguf" ]]
 # Installed commands are symlinks; the wrapper must still resolve the project root.
 ln -s "$ROOT/qwen-image" "$TMP/qwen-image"
 symlink_output="$(env QWEN_ENGINE="$TMP/sd-cli" QWEN_MODEL_DIR="$TMP/models" "$TMP/qwen-image" 'symlink test' --dry-run)"

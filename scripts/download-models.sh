@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODEL_DIR="${QWEN_MODEL_DIR:-$ROOT/models}"
+MODEL_DIR="${QWEN_MODEL_DIR:-$HOME/.qwen-image}"
 accepted=0
 editing=0
 

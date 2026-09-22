@@ -30,33 +30,31 @@ The model is governed by the [Qwen Research License Agreement](https://huggingfa
 
 ## Install
 
-Review the [Qwen Research License Agreement](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE), then install from the web:
+Install from the web:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/haseebeqx/qwen-image-intel-mac/main/web-install.sh \
-  | bash -s -- --accept-license
+curl -fsSL https://raw.githubusercontent.com/haseebeqx/qwen-image-intel-mac/main/web-install.sh | bash
 ```
 
-The web installer downloads the prebuilt, checksum-verified Intel macOS bundle from the latest GitHub release into `~/.local/share/qwen-image-intel-mac`. It then checks the host, downloads the models, and links `qwen-image` into `~/.local/bin`; it does not install build tools or compile the engine. Add the command directory to `PATH` if prompted. Model downloads resume if interrupted.
+The web installer downloads the prebuilt, checksum-verified Intel macOS bundle from the latest GitHub release into `~/.local/share/qwen-image-intel-mac`. It checks the host and links `qwen-image` into `~/.local/bin`; it does not download models, install build tools, or compile the engine. Add the command directory to `PATH` if prompted.
 
-To install a specific release, set `QWEN_INSTALL_VERSION` to its tag (for example, `v0.1.0`). Running the installer again updates the application bundle while preserving downloaded models and generated output.
+Models are downloaded to `~/.qwen-image` by default. To install a specific release, set `QWEN_INSTALL_VERSION` to its tag (for example, `v0.1.0`). Running the installer again updates the application bundle without affecting downloaded models.
 
 If you prefer to inspect the source or build the engine locally, clone the repository and run:
 
 ```bash
 git clone https://github.com/haseebeqx/qwen-image-intel-mac.git
 cd qwen-image-intel-mac
-./install.sh --accept-license
+./install.sh
 ```
 
-To choose another command directory, or to install without downloading the models:
+To choose another command directory:
 
 ```bash
-./install.sh --accept-license --bin-dir /usr/local/bin
-./install.sh --skip-models
+./install.sh --bin-dir /usr/local/bin
 ```
 
-The second form is useful when model files are managed separately. Set `QWEN_MODEL_DIR` when running the command, or pass `--model-dir`.
+Installation does not download model files. Set `QWEN_MODEL_DIR` when running the command, or pass `--model-dir`, to use a location other than `~/.qwen-image`.
 
 ### Manual setup
 
@@ -68,15 +66,18 @@ The second form is useful when model files are managed separately. Set `QWEN_MOD
 
 The default text-to-image set does not include the vision projector needed for image editing.
 
+On the first generation, `qwen-image` downloads any missing model files (about 8.3 GB) after displaying the model license URL. Downloads resume if interrupted. `qwen-image --help` never downloads models. Review the [Qwen Research License Agreement](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) before the first run.
+
 ## Uninstall
 
 Choose the commands that match how you installed the project.
 
-For the default web installation, remove the command link and the managed release directory (including its downloaded models):
+For the default web installation, remove the command link, managed release directory, and downloaded models:
 
 ```bash
 rm -f "$HOME/.local/bin/qwen-image"
 rm -rf "$HOME/.local/share/qwen-image-intel-mac"
+rm -rf "$HOME/.qwen-image"
 ```
 
 For an installation from a repository you cloned yourself, remove the command link and then remove the checkout if you no longer need it:
@@ -92,7 +93,7 @@ If you used `--bin-dir`, remove the link from that directory instead (use `sudo`
 sudo rm -f /usr/local/bin/qwen-image
 ```
 
-A manual setup does not install a command link, so removing the checkout is sufficient. Models kept outside the checkout through `QWEN_MODEL_DIR` or `--model-dir` are not removed automatically and must be deleted separately if desired. Before removing a checkout, save any generated files under its `outputs/` directory that you want to keep.
+A manual setup does not install a command link. Remove the checkout and `~/.qwen-image` separately if you also want to delete the default model files. Models stored elsewhere through `QWEN_MODEL_DIR` or `--model-dir` must likewise be deleted separately. Before removing a checkout, save any generated files under its `outputs/` directory that you want to keep.
 
 ## Generate
 
@@ -144,7 +145,7 @@ Each invocation reloads roughly 7.4 GB of model parameters, so even a fast gener
 --vram N           managed Metal budget in GiB (default auto: GPU VRAM minus 1 GiB)
 --threads N        CPU worker threads (default physical core count)
 --output PATH      PNG output path
---model-dir PATH   model directory (default ./models)
+--model-dir PATH   model directory (default ~/.qwen-image)
 --fast             256px, 12-step, CFG-6 preview profile
 --cpu              diagnostic CPU-only mode
 --verbose          show the engine command and full engine output
@@ -158,10 +159,9 @@ Environment variables with the same purpose are also accepted: `QWEN_MODEL_DIR`,
 
 ## Image editing (experimental)
 
-Download the extra 0.75 GB vision projector:
+The extra 0.75 GB vision projector is downloaded automatically the first time a reference image is used:
 
 ```bash
-./scripts/download-models.sh --accept-license --editing
 qwen-image "Replace the text on the sign with 'INTEL MAC'" \
   --reference input.png --output outputs/edit.png
 ```

@@ -10,7 +10,7 @@ download:
 	./scripts/download-models.sh --accept-license
 
 install:
-	@echo "Run ./install.sh --accept-license after reviewing the Qwen model license."
+	./install.sh
 
 test:
 	./tests/test-wrapper.sh

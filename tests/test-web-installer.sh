@@ -28,10 +28,10 @@ chmod +x "$TMP/bin/uname"
 
 RESULT="$RESULT" PATH="$TMP/bin:$PATH" QWEN_INSTALL_DIR="$DEST" \
 QWEN_RELEASE_URL="file://$ASSET" QWEN_RELEASE_CHECKSUM_URL="file://$ASSET.sha256" \
-    "$ROOT/web-install.sh" --accept-license
+    "$ROOT/web-install.sh"
 
 grep -qx -- '--skip-build' "$RESULT"
-grep -qx -- '--accept-license' "$RESULT"
+[[ "$(wc -l <"$RESULT" | tr -d ' ')" == 1 ]]
 [[ -x "$DEST/install.sh" ]]
 [[ -x "$DEST/build/bin/sd-cli" ]]
 
@@ -39,10 +39,10 @@ grep -qx -- '--accept-license' "$RESULT"
 touch "$DEST/preserved-model"
 RESULT="$RESULT" PATH="$TMP/bin:$PATH" QWEN_INSTALL_DIR="$DEST" \
 QWEN_RELEASE_URL="file://$ASSET" QWEN_RELEASE_CHECKSUM_URL="file://$ASSET.sha256" \
-    "$ROOT/web-install.sh" --skip-models
+    "$ROOT/web-install.sh"
 
 grep -qx -- '--skip-build' "$RESULT"
-grep -qx -- '--skip-models' "$RESULT"
+[[ "$(wc -l <"$RESULT" | tr -d ' ')" == 1 ]]
 [[ -f "$DEST/preserved-model" ]]
 
 echo "web installer tests passed"
