@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/haseebeqx/qwen-image-intel-mac/main
 
 The web installer downloads the prebuilt, checksum-verified Intel macOS bundle from the latest GitHub release into `~/.local/share/qwen-image-intel-mac`. It checks the host and links `qwen-image` into `~/.local/bin`; it does not download models, install build tools, or compile the engine. Add the command directory to `PATH` if prompted.
 
-Models are downloaded to `~/.qwen-image` by default. To install a specific release, set `QWEN_INSTALL_VERSION` to its tag (for example, `v0.1.0`). Running the installer again cleanly replaces the application bundle with the selected release, removing obsolete bundle files without affecting downloaded models.
+Models are downloaded to `~/.qwen-image` by default. To install a specific release, set `QWEN_INSTALL_VERSION` to one of the tags listed on the [Releases page](https://github.com/haseebeqx/qwen-image-intel-mac/releases). Running the installer again cleanly replaces the application bundle with the selected release, removing obsolete bundle files without affecting downloaded models.
 
 If you prefer to inspect the source or build the engine locally, clone the repository and run:
 
@@ -103,7 +103,7 @@ qwen-image "A studio photograph of a tiny robot holding a sign that says 'HELLO 
   --output outputs/robot.png
 ```
 
-Conservative defaults are 512×512, 20 Euler steps, CFG 6, seed 42, and an automatically sized Metal budget. The wrapper reserves 1 GiB of detected AMD VRAM, producing budgets of 3, 7, 15, and 31 GiB on 4, 8, 16, and 32 GB cards respectively. It calculates this from the reported capacity rather than using a fixed list, and falls back to 3 GiB if detection fails. Width and height must be multiples of 32.
+Conservative defaults are 512×512, 20 Euler steps, CFG 6, seed 42, and an automatically sized Metal budget. The wrapper reserves 1 GiB of detected AMD VRAM, producing budgets of 3, 7, 15, and 31 GiB on 4, 8, 16, and 32 GB cards respectively. It calculates this from the reported capacity rather than using a fixed list, and falls back to 3 GiB if detection fails. Width and height must be at least 256 and multiples of 32.
 
 ```bash
 qwen-image "A watercolor lighthouse in a storm" \
@@ -133,7 +133,7 @@ qwen-image "A watercolor lighthouse in a storm" --fast \
 
 EasyCache remains available as a raw engine option after `--`, but is not recommended at low step counts.
 
-Each invocation reloads roughly 7.4 GB of model parameters, so even a fast generation has a fixed cold-start cost. The first Metal run also compiles GPU pipelines. Keep `QWEN_DISK_PARAMS` unset unless memory pressure requires it: disk-backed parameters are substantially slower.
+Each invocation reads about 8.3 GB (7.7 GiB) of model files, so even a fast generation has a fixed cold-start cost. The first Metal run also compiles GPU pipelines. Keep `QWEN_DISK_PARAMS` unset unless memory pressure requires it: disk-backed parameters are substantially slower.
 
 ### Useful options
 
@@ -147,6 +147,7 @@ Each invocation reloads roughly 7.4 GB of model parameters, so even a fast gener
 --threads N        CPU worker threads (default physical core count)
 --output PATH      PNG output path
 --model-dir PATH   model directory (default ~/.qwen-image)
+--reference PATH   reference image; repeat for multi-image editing
 --fast             256px, 12-step, CFG-6 preview profile
 --cpu              diagnostic CPU-only mode
 --verbose          show the engine command and full engine output
@@ -191,16 +192,30 @@ Graph cuts manage memory, but they do not necessarily make a compute submission 
 
 This is distinct from fitting the whole Qwen-Image 2.1 pipeline in 4 GB. The full official BF16 pipeline is far larger, and the system still needs enough RAM and disk for quantized weights and temporary buffers.
 
-## Updating the engine
+## Update
 
-The tested upstream commit is pinned in `scripts/engine-version.sh`. Change the commit deliberately, then rebuild:
+For a web installation, rerun the installer to replace the application bundle with the latest release. Downloaded models are preserved:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/haseebeqx/qwen-image-intel-mac/main/web-install.sh | bash
+```
+
+For an installation from a cloned repository, pull the latest source and rebuild the pinned engine:
+
+```bash
+git pull --ff-only
+./install.sh
+```
+
+### Updating the upstream engine pin
+
+The tested `stable-diffusion.cpp` commit is pinned in `scripts/engine-version.sh`. Maintainers changing that pin should rebuild from a clean engine checkout:
 
 ```bash
 rm -rf vendor/stable-diffusion.cpp build
 ./scripts/build.sh
+make test
 ```
-
-Run `make test` for the wrapper's offline checks.
 
 ## Troubleshooting
 
