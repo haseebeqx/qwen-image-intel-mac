@@ -3,8 +3,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 interrupt_wrapper=""
+live_wrapper=""
 interrupt_pids=""
 cleanup() {
+    [[ -z "$live_wrapper" ]] || kill -KILL "$live_wrapper" 2>/dev/null || true
     [[ -z "$interrupt_wrapper" ]] || kill -KILL "$interrupt_wrapper" 2>/dev/null || true
     for pid in $interrupt_pids; do kill -KILL "$pid" 2>/dev/null || true; done
     rm -rf "$TMP"
@@ -27,6 +29,7 @@ fi
 if [ "${QWEN_TEST_PROGRESS:-0}" = 1 ]; then
     printf '[INFO   ] request.cpp - sampling using Euler method\n'
     printf '\r  |=========================                         | 1/2 - 1.00s/it\033[K'
+    if [ "${QWEN_TEST_LIVE_PROGRESS:-0}" = 1 ]; then sleep 1; fi
     printf '\r  |==================================================| 2/2 - 1.00s/it\033[K\n'
     printf '[INFO   ] image.cpp - decoding 1 latents\n'
     printf '\r  |==================================================| 1/1 - 1.00s/it\033[K\n'
@@ -121,6 +124,21 @@ progress_output="$(QWEN_TEST_PROGRESS=1 "${run[@]}" 'progress output' --steps 2 
 grep -q -- 'Loading text encoder' <<<"$progress_output"
 grep -q -- '2/2' <<<"$progress_output"
 grep -q -- 'Decoding image' <<<"$progress_output"
+# Progress must reach the wrapper's output while the engine is still running,
+# rather than being block-buffered until the pipeline closes.
+QWEN_TEST_PROGRESS=1 QWEN_TEST_LIVE_PROGRESS=1 \
+    "${run[@]}" 'live progress' --steps 2 --output "$TMP/live.png" >"$TMP/live.log" &
+live_wrapper=$!
+for _ in {1..200}; do
+    grep -q -- '1/2' "$TMP/live.log" && break
+    sleep 0.02
+done
+if ! grep -q -- '1/2' "$TMP/live.log"; then
+    echo "progress was not emitted while generation was running" >&2
+    exit 1
+fi
+wait "$live_wrapper"
+live_wrapper=""
 verbose_output="$("${run[@]}" 'verbose output' --verbose --output "$TMP/verbose.png")"
 grep -q -- 'Engine command:' <<<"$verbose_output"
 grep -q -- 'noisy engine details' <<<"$verbose_output"

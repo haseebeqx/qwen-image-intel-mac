@@ -333,7 +333,9 @@ else
     }
 
     printf 'Generating %sx%s image (%s steps)\n' "$WIDTH" "$HEIGHT" "$STEPS"
-    "${cmd[@]}" 2>&1 | tee "$log_file" | tr '\r' '\n' | compact_engine_output &
+    # BSD tr buffers when writing to a pipe unless -u is used. Without it, the
+    # compact formatter receives progress only after generation has completed.
+    "${cmd[@]}" 2>&1 | tee "$log_file" | tr -u '\r' '\n' | compact_engine_output &
     pipeline_pid=$!
     if wait "$pipeline_pid"; then
         status=0
